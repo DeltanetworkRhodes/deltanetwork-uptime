@@ -40,8 +40,7 @@ jobs:
           TEST_ALERT: ${{ inputs.test_alert }}
         run: |
           problems=""
-          [ "$TEST_ALERT" = "true" ] && problems="
-• ΔΟΚΙΜΗ — όχι πραγματικό πρόβλημα. Οι ειδοποιήσεις φτάνουν από το GitHub."
+          [ "$TEST_ALERT" = "true" ] && problems=" • ΔΟΚΙΜΗ — όχι πραγματικό πρόβλημα. Οι ειδοποιήσεις φτάνουν από το GitHub."
 
           sb=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://goioxtwfyjlyvefhytpi.supabase.co/auth/v1/health || echo 000)
           case "$sb" in
