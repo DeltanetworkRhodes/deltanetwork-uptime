@@ -1,0 +1,62 @@
+# Uptime check — ειδοποίηση στο κινητό αν πέσει η παραγωγή.
+#
+# Γιατί: στις 07/09/2026 το Supabase project μπήκε σε PAUSE (HTTP 540 «Project paused»)
+# και το μάθαμε από τους τεχνικούς («Load failed»). Ένα pause δεν περνάει μόνο του — μένει
+# μέχρι να το ξεπαγώσει κάποιος — οπότε έλεγχος ανά 10 λεπτά αρκεί και περισσεύει.
+#
+# Ανά 10 λεπτά: public repo, άρα δωρεάν λεπτά Actions (το private repo της εφαρμογής
+# χρεώνει ≥1 λεπτό ανά run από το ίδιο όριο με τα τεστ).
+#
+# Υγιές:
+#   Supabase  /auth/v1/health  → 401 «No API key» (ζει) · 540 = paused · οτιδήποτε άλλο = πρόβλημα
+#   deltanetwork.app            → 200
+#
+# Ειδοποίηση: POST στο ntfy.sh/<NTFY_TOPIC> (δεν θέλει λογαριασμό· ο ιδιοκτήτης κάνει subscribe
+# στο topic από την εφαρμογή ntfy). Το topic ζει σε GitHub secret, όχι στο repo — όποιος το ξέρει
+# μπορεί να διαβάσει τις ειδοποιήσεις. Χωρίς secret, το job απλώς αποτυγχάνει και το GitHub
+# στέλνει email για την αποτυχία.
+name: Uptime check
+
+on:
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"   # ανά 10 λεπτά, όχι στο :00 (εκεί συνωστίζονται)
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check production
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          problems=""
+
+          sb=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://goioxtwfyjlyvefhytpi.supabase.co/auth/v1/health || echo 000)
+          case "$sb" in
+            401|200) ;;
+            540) problems="$problems\n• Supabase σε PAUSE (540). Unpause από lovable.dev → Cloud." ;;
+            *)   problems="$problems\n• Supabase απαντά $sb (αναμενόταν 401)." ;;
+          esac
+
+          app=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://deltanetwork.app/ || echo 000)
+          [ "$app" = "200" ] || problems="$problems\n• deltanetwork.app απαντά $app (αναμενόταν 200)."
+
+          echo "supabase=$sb app=$app"
+          if [ -z "$problems" ]; then
+            echo "OK"
+            exit 0
+          fi
+
+          msg=$(printf "Η παραγωγή δεν απαντά σωστά:$problems")
+          echo "$msg"
+          if [ -n "$NTFY_TOPIC" ]; then
+            # JSON, όχι headers: τα HTTP headers δεν σηκώνουν ελληνικά (ο τίτλος θα έφτανε αλλοιωμένος).
+            jq -n --arg t "$NTFY_TOPIC" --arg m "$msg" \
+              '{topic: $t, title: "DeltaNetwork: πρόβλημα παραγωγής", message: $m, priority: 5, tags: ["rotating_light"]}' \
+              | curl -s --max-time 20 -H "Content-Type: application/json" -d @- https://ntfy.sh/ > /dev/null || true
+          fi
+          exit 1
