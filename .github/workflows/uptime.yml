@@ -21,6 +21,11 @@ on:
   schedule:
     - cron: "7,17,27,37,47,57 * * * *"   # ανά 10 λεπτά, όχι στο :00 (εκεί συνωστίζονται)
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Στείλε δοκιμαστική ειδοποίηση (ελέγχει όλη τη διαδρομή μέχρι το κινητό)"
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -32,8 +37,11 @@ jobs:
       - name: Check production
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          TEST_ALERT: ${{ inputs.test_alert }}
         run: |
           problems=""
+          [ "$TEST_ALERT" = "true" ] && problems="
+• ΔΟΚΙΜΗ — όχι πραγματικό πρόβλημα. Οι ειδοποιήσεις φτάνουν από το GitHub."
 
           sb=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://goioxtwfyjlyvefhytpi.supabase.co/auth/v1/health || echo 000)
           case "$sb" in
@@ -59,4 +67,6 @@ jobs:
               '{topic: $t, title: "DeltaNetwork: πρόβλημα παραγωγής", message: $m, priority: 5, tags: ["rotating_light"]}' \
               | curl -s --max-time 20 -H "Content-Type: application/json" -d @- https://ntfy.sh/ > /dev/null || true
           fi
+          # Η δοκιμή δεν «αποτυγχάνει» το run — αλλιώς θα έφευγε και email αποτυχίας από το GitHub.
+          [ "$TEST_ALERT" = "true" ] && exit 0
           exit 1
